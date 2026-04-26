@@ -24,7 +24,7 @@ const Index = () => {
       <div className="mx-auto max-w-md px-6 pt-10 pb-16 relative z-10">
         <div className="flex justify-between items-center mb-12">
           <Logo />
-          <Link to="/onboarding" className="text-xs font-medium text-muted-foreground hover:text-foreground transition">Sign in</Link>
+          <Link to="/auth" className="text-xs font-medium text-muted-foreground hover:text-foreground transition">Sign in</Link>
         </div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
@@ -59,10 +59,10 @@ const Index = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="mt-8 space-y-3">
-          <Link to="/onboarding">
+          <Link to="/auth">
             <Button className="w-full h-14 rounded-2xl text-base font-semibold gap-2"
               style={{ background: "var(--gradient-gold)", color: "hsl(var(--primary-foreground))", boxShadow: "var(--shadow-gold)" }}>
-              Begin your check-in <ArrowRight size={18} />
+              Get started <ArrowRight size={18} />
             </Button>
           </Link>
           <p className="text-center text-xs text-muted-foreground">Free during beta · No card required</p>
