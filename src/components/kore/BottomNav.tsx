@@ -1,12 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { Home, Utensils, Dumbbell, Pill, Sparkles } from "lucide-react";
+import { Home, Utensils, Dumbbell, Sparkles, TrendingUp } from "lucide-react";
 
 const items = [
   { to: "/app", icon: Home, label: "Home" },
   { to: "/app/meals", icon: Utensils, label: "Meals" },
-  { to: "/app/checkin", icon: Sparkles, label: "Check-in" },
+  { to: "/app/coach", icon: Sparkles, label: "Coach" },
   { to: "/app/gym", icon: Dumbbell, label: "Gym" },
-  { to: "/app/supplements", icon: Pill, label: "Stack" },
+  { to: "/app/history", icon: TrendingUp, label: "History" },
 ];
 
 export function BottomNav() {
