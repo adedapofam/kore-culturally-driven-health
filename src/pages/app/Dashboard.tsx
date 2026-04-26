@@ -71,10 +71,10 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 text-muted-foreground text-xs"><Flame size={14} className="text-accent" /> Streak</div>
             <div className="font-display text-3xl font-semibold mt-1 tabular-nums">{k.streak}<span className="text-sm text-muted-foreground font-sans ml-1">days</span></div>
           </div>
-          <Link to="/app/checkin" className="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-accent/40 transition group">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs"><Sparkles size={14} className="text-accent" /> Check-in</div>
+          <Link to="/app/coach" className="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-accent/40 transition group">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs"><Sparkles size={14} className="text-accent" /> Ask Kōre</div>
             <div className="flex justify-between items-end mt-1">
-              <span className="font-medium text-sm">Open today</span>
+              <span className="font-medium text-sm">Open chat</span>
               <ChevronRight size={16} className="text-muted-foreground group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
             </div>
           </Link>
