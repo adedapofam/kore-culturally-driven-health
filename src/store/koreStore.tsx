@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import type { CulturalCuisine } from "@/data/foods";
+import { supabase } from "@/integrations/supabase/client";
+import type { User } from "@supabase/supabase-js";
 
 export type Goal = "muscle_gain" | "fat_loss" | "maintenance";
 export type ActivityLevel = "sedentary" | "light" | "moderate" | "very_active";
@@ -49,6 +51,9 @@ interface State {
 }
 
 interface Ctx extends State {
+  user: User | null;
+  authLoading: boolean;
+  signOut: () => Promise<void>;
   setProfile: (p: Profile) => void;
   addMeal: (m: Omit<MealEntry, "id" | "date">) => void;
   removeMeal: (id: string) => void;
@@ -110,10 +115,48 @@ export function KoreProvider({ children }: { children: ReactNode }) {
       return raw ? { ...initial, ...JSON.parse(raw) } : initial;
     } catch { return initial; }
   });
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
   }, [state]);
+
+  // Auth bootstrap
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null);
+    });
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setAuthLoading(false);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Hydrate profile from cloud when user logs in
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data: prof } = await supabase
+        .from("profiles").select("*").eq("id", user.id).maybeSingle();
+      if (prof && prof.age && prof.weight_kg) {
+        setState(s => ({
+          ...s,
+          profile: {
+            name: prof.name || s.profile?.name || "Friend",
+            age: prof.age!,
+            weightKg: Number(prof.weight_kg),
+            heightCm: Number(prof.height_cm ?? 175),
+            goal: (prof.goal as Goal) ?? "maintenance",
+            cuisines: (prof.cuisines ?? []) as CulturalCuisine[],
+            activity: (prof.activity as ActivityLevel) ?? "moderate",
+            gymDaysPerWeek: prof.gym_days_per_week ?? 3,
+          },
+        }));
+      }
+    })();
+  }, [user]);
 
   const value = useMemo<Ctx>(() => {
     const today = todayStr();
@@ -139,6 +182,9 @@ export function KoreProvider({ children }: { children: ReactNode }) {
 
     return {
       ...state,
+      user,
+      authLoading,
+      signOut: async () => { await supabase.auth.signOut(); setState(initial); },
       setProfile: (p) => setState(s => ({ ...s, profile: p })),
       addMeal: (m) => setState(s => ({ ...s, meals: [...s.meals, { ...m, id: crypto.randomUUID(), date: today }] })),
       removeMeal: (id) => setState(s => ({ ...s, meals: s.meals.filter(m => m.id !== id) })),
@@ -177,7 +223,7 @@ export function KoreProvider({ children }: { children: ReactNode }) {
       }),
       reset: () => setState(initial),
     };
-  }, [state]);
+  }, [state, user, authLoading]);
 
   return <KoreContext.Provider value={value}>{children}</KoreContext.Provider>;
 }
