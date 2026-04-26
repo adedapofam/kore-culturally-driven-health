@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Flame, Droplets, Dumbbell, Pill, Plus, Sparkles, ChevronRight } from "lucide-react";
+import { Flame, Droplets, Dumbbell, Pill, Plus, Sparkles, ChevronRight, type LucideIcon } from "lucide-react";
 import { MobileShell } from "@/components/kore/MobileShell";
 import { ProgressRing } from "@/components/kore/ProgressRing";
 import { MacroBar } from "@/components/kore/MacroBar";
@@ -134,7 +134,7 @@ export default function Dashboard() {
 }
 
 function TrackerTile({ to, icon: Icon, color, label, primary, sub, pct }: {
-  to: string; icon: React.ComponentType<{ size?: number; className?: string }>;
+  to: string; icon: LucideIcon;
   color: string; label: string; primary: string; sub: string; pct: number;
 }) {
   return (
