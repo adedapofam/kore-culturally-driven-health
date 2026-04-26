@@ -185,7 +185,16 @@ export function KoreProvider({ children }: { children: ReactNode }) {
       user,
       authLoading,
       signOut: async () => { await supabase.auth.signOut(); setState(initial); },
-      setProfile: (p) => setState(s => ({ ...s, profile: p })),
+      setProfile: (p) => {
+        setState(s => ({ ...s, profile: p }));
+        if (user) {
+          supabase.from("profiles").upsert({
+            id: user.id, name: p.name, age: p.age, weight_kg: p.weightKg,
+            height_cm: p.heightCm, goal: p.goal, cuisines: p.cuisines,
+            activity: p.activity, gym_days_per_week: p.gymDaysPerWeek,
+          }).then(({ error }) => { if (error) console.error("profile sync", error); });
+        }
+      },
       addMeal: (m) => setState(s => ({ ...s, meals: [...s.meals, { ...m, id: crypto.randomUUID(), date: today }] })),
       removeMeal: (id) => setState(s => ({ ...s, meals: s.meals.filter(m => m.id !== id) })),
       addWorkout: (w) => setState(s => {
