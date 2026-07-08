@@ -21,7 +21,20 @@ import { KoreProvider, useKore } from "@/store/koreStore";
 const queryClient = new QueryClient();
 
 function RequireProfile({ children }: { children: JSX.Element }) {
-  const { profile } = useKore();
+  const { profile, user, authLoading, cloudSynced } = useKore();
+  // Wait for auth to resolve, and for signed-in users wait for their cloud
+  // data to hydrate — otherwise a returning user on a fresh device gets
+  // bounced to onboarding and overwrites their cloud profile.
+  if (authLoading || (user && !cloudSynced)) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          <p className="text-xs text-muted-foreground tracking-wide">Loading your data…</p>
+        </div>
+      </div>
+    );
+  }
   if (!profile) return <Navigate to="/onboarding" replace />;
   return children;
 }
