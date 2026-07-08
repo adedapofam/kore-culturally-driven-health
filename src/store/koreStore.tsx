@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import type { CulturalCuisine } from "@/data/foods";
 import { supabase } from "@/integrations/supabase/client";
 import type { User } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 export type Goal = "muscle_gain" | "fat_loss" | "maintenance";
 export type ActivityLevel = "sedentary" | "light" | "moderate" | "very_active";
@@ -45,7 +46,7 @@ interface State {
   supplementLogs: SupplementLog[];
   hydration: HydrationLog[];
   checkIns: CheckIn[];
-  isGymDayOverride: Record<string, boolean | undefined>; // by date
+  isGymDayOverride: Record<string, boolean | undefined>; // by date (local-device preference)
   streak: number;
   lastCheckInDate: string | null;
 }
@@ -53,6 +54,8 @@ interface State {
 interface Ctx extends State {
   user: User | null;
   authLoading: boolean;
+  /** True once cloud data for the signed-in user has been loaded (or the user is a guest). */
+  cloudSynced: boolean;
   signOut: () => Promise<void>;
   setProfile: (p: Profile) => void;
   addMeal: (m: Omit<MealEntry, "id" | "date">) => void;
@@ -76,6 +79,8 @@ interface Ctx extends State {
 
 const KoreContext = createContext<Ctx | null>(null);
 const STORAGE_KEY = "kore_state_v1";
+const MIGRATED_KEY = (uid: string) => `kore_migrated_${uid}`;
+const CLOUD_WINDOW_DAYS = 90; // how much history we hydrate into the client
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 const initial: State = {
@@ -101,11 +106,187 @@ function calcTargets(p: Profile, isGym: boolean) {
 
 function isGymScheduled(p: Profile | null): boolean {
   if (!p) return false;
-  // simple: gym days = first N days of week (Mon-based)
   const day = new Date().getDay(); // 0=Sun..6=Sat
   const monIdx = (day + 6) % 7; // 0=Mon..6=Sun
   return monIdx < p.gymDaysPerWeek;
 }
+
+/** Derive streak + last check-in date from a list of check-ins (source of truth: cloud). */
+export function deriveStreak(checkIns: CheckIn[]): { streak: number; lastCheckInDate: string | null } {
+  if (checkIns.length === 0) return { streak: 0, lastCheckInDate: null };
+  const dates = new Set(checkIns.map(c => c.date));
+  const last = [...dates].sort().pop() ?? null;
+  const cursor = new Date();
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  // A streak is alive if the user checked in today or yesterday.
+  if (!dates.has(iso(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (dates.has(iso(cursor))) { streak++; cursor.setDate(cursor.getDate() - 1); }
+  return { streak, lastCheckInDate: last };
+}
+
+/** Report a background sync failure once, without interrupting the user's flow. */
+let syncErrorShown = false;
+function reportSyncError(op: string, error: unknown) {
+  console.error(`[kore sync] ${op}`, error);
+  if (!syncErrorShown) {
+    syncErrorShown = true;
+    toast.error("Couldn't sync to cloud — your data is saved on this device and will sync next time you open the app.");
+  }
+}
+
+// ---------- Cloud row mappers ----------
+
+type MealsRow = { id: string; log_date: string; slot: string; name: string; calories: number; protein: number; carbs: number; fat: number; emoji: string | null };
+type WorkoutRow = { id: string; log_date: string; exercises: unknown };
+type SupplementRow = { id: string; name: string; timing: string; emoji: string | null; is_food_based: boolean | null };
+type SupplementLogRow = { log_date: string; supplement_id: string; taken: boolean };
+type HydrationRow = { log_date: string; ml: number };
+type CheckInRow = { log_date: string; type: string; mood: number; notes: string | null };
+
+const mapMeal = (r: MealsRow): MealEntry => ({
+  id: r.id, date: r.log_date, slot: r.slot as MealSlot, name: r.name,
+  calories: Number(r.calories), protein: Number(r.protein), carbs: Number(r.carbs), fat: Number(r.fat),
+  emoji: r.emoji ?? undefined,
+});
+const mapWorkout = (r: WorkoutRow): Workout => ({
+  id: r.id, date: r.log_date,
+  exercises: Array.isArray(r.exercises) ? (r.exercises as LoggedExercise[]) : [],
+});
+const mapSupplement = (r: SupplementRow): Supplement => ({
+  id: r.id, name: r.name, timing: r.timing as SupplementTiming,
+  emoji: r.emoji ?? "💊", isFoodBased: r.is_food_based ?? false,
+});
+const mapSupplementLog = (r: SupplementLogRow): SupplementLog => ({
+  date: r.log_date, supplementId: r.supplement_id, taken: r.taken,
+});
+const mapHydration = (r: HydrationRow): HydrationLog => ({ date: r.log_date, ml: r.ml });
+const mapCheckIn = (r: CheckInRow): CheckIn => ({
+  date: r.log_date, type: (r.type === "evening" ? "evening" : "morning"), mood: r.mood, notes: r.notes ?? "",
+});
+
+// ---------- One-time migration of guest (localStorage) data to the cloud ----------
+
+async function migrateLocalToCloud(uid: string) {
+  if (localStorage.getItem(MIGRATED_KEY(uid))) return;
+  let local: State | null = null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    local = raw ? { ...initial, ...JSON.parse(raw) } : null;
+  } catch { local = null; }
+  if (!local) { localStorage.setItem(MIGRATED_KEY(uid), "1"); return; }
+
+  const hasContent = local.meals.length || local.workouts.length || local.supplements.length ||
+    local.hydration.length || local.checkIns.length || local.profile;
+  if (!hasContent) { localStorage.setItem(MIGRATED_KEY(uid), "1"); return; }
+
+  try {
+    if (local.profile) {
+      const p = local.profile;
+      await supabase.from("profiles").upsert({
+        id: uid, name: p.name, age: p.age, weight_kg: p.weightKg, height_cm: p.heightCm,
+        goal: p.goal, cuisines: p.cuisines, activity: p.activity, gym_days_per_week: p.gymDaysPerWeek,
+      });
+    }
+    if (local.meals.length) {
+      await supabase.from("meals").upsert(
+        local.meals.map(m => ({
+          id: m.id, user_id: uid, log_date: m.date, slot: m.slot, name: m.name,
+          calories: m.calories, protein: m.protein, carbs: m.carbs, fat: m.fat, emoji: m.emoji ?? null,
+        })),
+        { onConflict: "id", ignoreDuplicates: true },
+      );
+    }
+    if (local.workouts.length) {
+      await supabase.from("workouts").upsert(
+        local.workouts.map(w => ({ user_id: uid, log_date: w.date, exercises: w.exercises as unknown as never })),
+        { onConflict: "user_id,log_date", ignoreDuplicates: true },
+      );
+    }
+    if (local.supplements.length) {
+      await supabase.from("supplements").upsert(
+        local.supplements.map(s => ({
+          id: s.id, user_id: uid, name: s.name, timing: s.timing,
+          emoji: s.emoji, is_food_based: s.isFoodBased ?? false,
+        })),
+        { onConflict: "id", ignoreDuplicates: true },
+      );
+      if (local.supplementLogs.length) {
+        await supabase.from("supplement_logs").upsert(
+          local.supplementLogs.map(l => ({
+            user_id: uid, supplement_id: l.supplementId, log_date: l.date, taken: l.taken,
+          })),
+          { onConflict: "user_id,supplement_id,log_date", ignoreDuplicates: true },
+        );
+      }
+    }
+    if (local.hydration.length) {
+      await supabase.from("hydration_logs").insert(
+        local.hydration.map(h => ({ user_id: uid, log_date: h.date, ml: h.ml })),
+      );
+    }
+    if (local.checkIns.length) {
+      await supabase.from("check_ins").insert(
+        local.checkIns.map(c => ({ user_id: uid, log_date: c.date, type: c.type, mood: c.mood, notes: c.notes })),
+      );
+    }
+    localStorage.setItem(MIGRATED_KEY(uid), "1");
+  } catch (e) {
+    // Don't set the flag — we'll retry on next launch. Local data is untouched.
+    reportSyncError("migration", e);
+  }
+}
+
+// ---------- Fetch the user's cloud data ----------
+
+async function fetchCloudState(uid: string): Promise<Partial<State>> {
+  const since = new Date();
+  since.setDate(since.getDate() - CLOUD_WINDOW_DAYS);
+  const sinceStr = since.toISOString().slice(0, 10);
+
+  const [prof, meals, workouts, supps, suppLogs, hydra, checkins] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
+    supabase.from("meals").select("id,log_date,slot,name,calories,protein,carbs,fat,emoji").eq("user_id", uid).gte("log_date", sinceStr).order("created_at"),
+    supabase.from("workouts").select("id,log_date,exercises").eq("user_id", uid).gte("log_date", sinceStr).order("log_date"),
+    supabase.from("supplements").select("id,name,timing,emoji,is_food_based").eq("user_id", uid).order("created_at"),
+    supabase.from("supplement_logs").select("log_date,supplement_id,taken").eq("user_id", uid).gte("log_date", sinceStr),
+    supabase.from("hydration_logs").select("log_date,ml").eq("user_id", uid).gte("log_date", sinceStr).order("created_at"),
+    supabase.from("check_ins").select("log_date,type,mood,notes").eq("user_id", uid).order("log_date"),
+  ]);
+
+  const firstError = [prof, meals, workouts, supps, suppLogs, hydra, checkins].find(r => r.error)?.error;
+  if (firstError) throw firstError;
+
+  const next: Partial<State> = {
+    meals: (meals.data ?? []).map(mapMeal),
+    workouts: (workouts.data ?? []).map(w => mapWorkout(w as WorkoutRow)),
+    supplements: (supps.data ?? []).map(mapSupplement),
+    supplementLogs: (suppLogs.data ?? []).map(mapSupplementLog),
+    hydration: (hydra.data ?? []).map(mapHydration),
+    checkIns: (checkins.data ?? []).map(mapCheckIn),
+  };
+
+  const p = prof.data;
+  if (p && p.age && p.weight_kg) {
+    next.profile = {
+      name: p.name || "Friend",
+      age: p.age,
+      weightKg: Number(p.weight_kg),
+      heightCm: Number(p.height_cm ?? 175),
+      goal: (p.goal as Goal) ?? "maintenance",
+      cuisines: (p.cuisines ?? []) as CulturalCuisine[],
+      activity: (p.activity as ActivityLevel) ?? "moderate",
+      gymDaysPerWeek: p.gym_days_per_week ?? 3,
+    };
+  }
+
+  const { streak, lastCheckInDate } = deriveStreak(next.checkIns ?? []);
+  next.streak = streak;
+  next.lastCheckInDate = lastCheckInDate;
+  return next;
+}
+
+// ---------- Provider ----------
 
 export function KoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(() => {
@@ -117,7 +298,11 @@ export function KoreProvider({ children }: { children: ReactNode }) {
   });
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [cloudSynced, setCloudSynced] = useState(false);
+  const userRef = useRef<User | null>(null);
+  userRef.current = user;
 
+  // Local cache persistence (offline / guest support)
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
   }, [state]);
@@ -134,32 +319,30 @@ export function KoreProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Hydrate profile from cloud when user logs in
+  // Cloud hydration: migrate guest data once, then load cloud state (cloud is source of truth).
   useEffect(() => {
-    if (!user) return;
+    if (!user) { setCloudSynced(false); return; }
+    let cancelled = false;
     (async () => {
-      const { data: prof } = await supabase
-        .from("profiles").select("*").eq("id", user.id).maybeSingle();
-      if (prof && prof.age && prof.weight_kg) {
-        setState(s => ({
-          ...s,
-          profile: {
-            name: prof.name || s.profile?.name || "Friend",
-            age: prof.age!,
-            weightKg: Number(prof.weight_kg),
-            heightCm: Number(prof.height_cm ?? 175),
-            goal: (prof.goal as Goal) ?? "maintenance",
-            cuisines: (prof.cuisines ?? []) as CulturalCuisine[],
-            activity: (prof.activity as ActivityLevel) ?? "moderate",
-            gymDaysPerWeek: prof.gym_days_per_week ?? 3,
-          },
-        }));
+      try {
+        await migrateLocalToCloud(user.id);
+        const cloud = await fetchCloudState(user.id);
+        if (cancelled) return;
+        setState(s => ({ ...s, ...cloud }));
+      } catch (e) {
+        reportSyncError("initial load", e);
+        // Fall through — the localStorage cache keeps the app usable offline.
+      } finally {
+        if (!cancelled) setCloudSynced(true);
       }
     })();
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = useMemo<Ctx>(() => {
     const today = todayStr();
+    const uid = user?.id ?? null;
+
     const isGymDayToday = () => {
       const ov = state.isGymDayOverride[today];
       return ov !== undefined ? ov : isGymScheduled(state.profile);
@@ -184,55 +367,120 @@ export function KoreProvider({ children }: { children: ReactNode }) {
       ...state,
       user,
       authLoading,
-      signOut: async () => { await supabase.auth.signOut(); setState(initial); },
+      cloudSynced,
+      signOut: async () => {
+        // Cloud is the source of truth for signed-in users; clearing the local
+        // cache on sign-out no longer destroys anything.
+        await supabase.auth.signOut();
+        try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+        setState(initial);
+      },
       setProfile: (p) => {
         setState(s => ({ ...s, profile: p }));
-        if (user) {
+        if (uid) {
           supabase.from("profiles").upsert({
-            id: user.id, name: p.name, age: p.age, weight_kg: p.weightKg,
+            id: uid, name: p.name, age: p.age, weight_kg: p.weightKg,
             height_cm: p.heightCm, goal: p.goal, cuisines: p.cuisines,
             activity: p.activity, gym_days_per_week: p.gymDaysPerWeek,
-          }).then(({ error }) => { if (error) console.error("profile sync", error); });
+          }).then(({ error }) => { if (error) reportSyncError("profile", error); });
         }
       },
-      addMeal: (m) => setState(s => ({ ...s, meals: [...s.meals, { ...m, id: crypto.randomUUID(), date: today }] })),
-      removeMeal: (id) => setState(s => ({ ...s, meals: s.meals.filter(m => m.id !== id) })),
-      addWorkout: (w) => setState(s => {
-        const existing = s.workouts.find(x => x.date === today);
-        if (existing) {
-          return { ...s, workouts: s.workouts.map(x => x.date === today ? { ...x, exercises: [...x.exercises, ...w.exercises] } : x) };
+      addMeal: (m) => {
+        const id = crypto.randomUUID();
+        setState(s => ({ ...s, meals: [...s.meals, { ...m, id, date: today }] }));
+        if (uid) {
+          supabase.from("meals").insert({
+            id, user_id: uid, log_date: today, slot: m.slot, name: m.name,
+            calories: Math.round(m.calories), protein: m.protein, carbs: m.carbs, fat: m.fat, emoji: m.emoji ?? null,
+          }).then(({ error }) => { if (error) reportSyncError("meal", error); });
         }
-        return { ...s, workouts: [...s.workouts, { ...w, id: crypto.randomUUID(), date: today }] };
-      }),
-      addSupplement: (sup) => setState(s => ({ ...s, supplements: [...s.supplements, { ...sup, id: crypto.randomUUID() }] })),
-      removeSupplement: (id) => setState(s => ({
-        ...s, supplements: s.supplements.filter(x => x.id !== id),
-        supplementLogs: s.supplementLogs.filter(l => l.supplementId !== id),
-      })),
-      toggleSupplement: (supplementId) => setState(s => {
-        const existing = s.supplementLogs.find(l => l.date === today && l.supplementId === supplementId);
-        if (existing) return { ...s, supplementLogs: s.supplementLogs.map(l => l === existing ? { ...l, taken: !l.taken } : l) };
-        return { ...s, supplementLogs: [...s.supplementLogs, { date: today, supplementId, taken: true }] };
-      }),
-      addWater: (ml) => setState(s => ({ ...s, hydration: [...s.hydration, { date: today, ml }] })),
+      },
+      removeMeal: (id) => {
+        setState(s => ({ ...s, meals: s.meals.filter(m => m.id !== id) }));
+        if (uid) {
+          supabase.from("meals").delete().eq("id", id)
+            .then(({ error }) => { if (error) reportSyncError("meal delete", error); });
+        }
+      },
+      addWorkout: (w) => {
+        const existing = state.workouts.find(x => x.date === today);
+        const mergedExercises = existing ? [...existing.exercises, ...w.exercises] : w.exercises;
+        setState(s => {
+          const ex = s.workouts.find(x => x.date === today);
+          if (ex) {
+            return { ...s, workouts: s.workouts.map(x => x.date === today ? { ...x, exercises: [...x.exercises, ...w.exercises] } : x) };
+          }
+          return { ...s, workouts: [...s.workouts, { ...w, id: crypto.randomUUID(), date: today }] };
+        });
+        if (uid) {
+          supabase.from("workouts").upsert(
+            { user_id: uid, log_date: today, exercises: mergedExercises as unknown as never },
+            { onConflict: "user_id,log_date" },
+          ).then(({ error }) => { if (error) reportSyncError("workout", error); });
+        }
+      },
+      addSupplement: (sup) => {
+        const id = crypto.randomUUID();
+        setState(s => ({ ...s, supplements: [...s.supplements, { ...sup, id }] }));
+        if (uid) {
+          supabase.from("supplements").insert({
+            id, user_id: uid, name: sup.name, timing: sup.timing,
+            emoji: sup.emoji, is_food_based: sup.isFoodBased ?? false,
+          }).then(({ error }) => { if (error) reportSyncError("supplement", error); });
+        }
+      },
+      removeSupplement: (id) => {
+        setState(s => ({
+          ...s, supplements: s.supplements.filter(x => x.id !== id),
+          supplementLogs: s.supplementLogs.filter(l => l.supplementId !== id),
+        }));
+        if (uid) {
+          supabase.from("supplements").delete().eq("id", id)
+            .then(({ error }) => { if (error) reportSyncError("supplement delete", error); });
+        }
+      },
+      toggleSupplement: (supplementId) => {
+        const existing = state.supplementLogs.find(l => l.date === today && l.supplementId === supplementId);
+        const newTaken = existing ? !existing.taken : true;
+        setState(s => {
+          const ex = s.supplementLogs.find(l => l.date === today && l.supplementId === supplementId);
+          if (ex) return { ...s, supplementLogs: s.supplementLogs.map(l => l === ex ? { ...l, taken: newTaken } : l) };
+          return { ...s, supplementLogs: [...s.supplementLogs, { date: today, supplementId, taken: newTaken }] };
+        });
+        if (uid) {
+          supabase.from("supplement_logs").upsert(
+            { user_id: uid, supplement_id: supplementId, log_date: today, taken: newTaken },
+            { onConflict: "user_id,supplement_id,log_date" },
+          ).then(({ error }) => { if (error) reportSyncError("supplement log", error); });
+        }
+      },
+      addWater: (ml) => {
+        setState(s => ({ ...s, hydration: [...s.hydration, { date: today, ml }] }));
+        if (uid) {
+          supabase.from("hydration_logs").insert({ user_id: uid, log_date: today, ml })
+            .then(({ error }) => { if (error) reportSyncError("hydration", error); });
+        }
+      },
       toggleGymDay: () => setState(s => {
         const cur = s.isGymDayOverride[today];
         const base = cur !== undefined ? cur : isGymScheduled(s.profile);
         return { ...s, isGymDayOverride: { ...s.isGymDayOverride, [today]: !base } };
       }),
       isGymDayToday, todayMeals, todayTotals, todayWaterMl, todaySupplementCompletion, todayWorkout, targets,
-      recordCheckIn: (c) => setState(s => {
-        const yest = new Date(); yest.setDate(yest.getDate() - 1);
-        const yestStr = yest.toISOString().slice(0, 10);
-        let streak = s.streak;
-        if (s.lastCheckInDate !== today) {
-          streak = s.lastCheckInDate === yestStr ? streak + 1 : 1;
+      recordCheckIn: (c) => {
+        setState(s => {
+          const next = { ...s, checkIns: [...s.checkIns, { ...c, date: today }] };
+          const { streak, lastCheckInDate } = deriveStreak(next.checkIns);
+          return { ...next, streak, lastCheckInDate };
+        });
+        if (uid) {
+          supabase.from("check_ins").insert({ user_id: uid, log_date: today, type: c.type, mood: c.mood, notes: c.notes })
+            .then(({ error }) => { if (error) reportSyncError("check-in", error); });
         }
-        return { ...s, checkIns: [...s.checkIns, { ...c, date: today }], streak, lastCheckInDate: today };
-      }),
+      },
       reset: () => setState(initial),
     };
-  }, [state, user, authLoading]);
+  }, [state, user, authLoading, cloudSynced]);
 
   return <KoreContext.Provider value={value}>{children}</KoreContext.Provider>;
 }
