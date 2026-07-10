@@ -8,6 +8,9 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Onboarding from "./pages/Onboarding";
 import Auth from "./pages/Auth";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import Disclaimer from "./pages/Disclaimer";
 import Dashboard from "./pages/app/Dashboard";
 import Meals from "./pages/app/Meals";
 import Gym from "./pages/app/Gym";
@@ -56,6 +59,9 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/disclaimer" element={<Disclaimer />} />
             <Route path="/app" element={<RequireProfile><Dashboard /></RequireProfile>} />
             <Route path="/app/meals" element={<RequireProfile><Meals /></RequireProfile>} />
             <Route path="/app/gym" element={<RequireProfile><Gym /></RequireProfile>} />
