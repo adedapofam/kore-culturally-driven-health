@@ -16,6 +16,7 @@ export default function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   useEffect(() => {
     if (!authLoading && user) nav("/app", { replace: true });
@@ -23,6 +24,10 @@ export default function Auth() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "signup" && !agreed) {
+      toast.error("Please agree to the Terms, Privacy Policy and Health Disclaimer first.");
+      return;
+    }
     setBusy(true);
     try {
       if (mode === "signup") {
@@ -31,7 +36,7 @@ export default function Auth() {
           options: { emailRedirectTo: `${window.location.origin}/onboarding` },
         });
         if (error) throw error;
-        toast.success("Check your inbox to confirm your email.");
+        toast.success("Account created — welcome to Kōre!");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -42,6 +47,10 @@ export default function Auth() {
   };
 
   const oauth = async (provider: "google" | "apple") => {
+    if (mode === "signup" && !agreed) {
+      toast.error("Please agree to the Terms, Privacy Policy and Health Disclaimer first.");
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: `${window.location.origin}/app` },
@@ -73,6 +82,24 @@ export default function Auth() {
             <Input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
               required minLength={6} className="h-13 pl-11 rounded-2xl bg-secondary/40 border-border/60" />
           </div>
+          {mode === "signup" && (
+            <label className="flex items-start gap-2.5 px-1 py-1 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border/60 accent-[hsl(var(--accent))]"
+              />
+              <span className="text-xs text-muted-foreground leading-relaxed">
+                I'm 18 or over and I agree to the{" "}
+                <Link to="/terms" target="_blank" className="text-accent underline-offset-2 hover:underline">Terms</Link>,{" "}
+                <Link to="/privacy" target="_blank" className="text-accent underline-offset-2 hover:underline">Privacy Policy</Link>{" "}
+                and{" "}
+                <Link to="/disclaimer" target="_blank" className="text-accent underline-offset-2 hover:underline">Health Disclaimer</Link>{" "}
+                — and I understand Kōre is not medical advice.
+              </span>
+            </label>
+          )}
           <Button type="submit" disabled={busy} className="w-full h-14 rounded-2xl text-base font-semibold gap-2"
             style={{ background: "var(--gradient-gold)", color: "hsl(var(--primary-foreground))" }}>
             {busy ? <Loader2 size={18} className="animate-spin" /> : <>{mode === "signin" ? "Sign in" : "Create account"} <ArrowRight size={18} /></>}
