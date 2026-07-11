@@ -13,21 +13,23 @@ export interface FoodItem {
   fat: number;
   emoji: string;
   isFoodSupplement?: boolean; // for items like beetroot, watermelon, dates
+  /** Alternative spellings/names people actually use when searching. */
+  aliases?: string[];
 }
 
 export const FOOD_DB: FoodItem[] = [
   // West African
-  { id: "f1", name: "Jollof Rice", cuisine: "West African", servingLabel: "1 cup (200g)", calories: 320, protein: 7, carbs: 58, fat: 8, emoji: "🍚" },
-  { id: "f2", name: "Fried Plantain (Dodo)", cuisine: "West African", servingLabel: "4 slices (100g)", calories: 215, protein: 1.5, carbs: 32, fat: 9, emoji: "🍌" },
-  { id: "f3", name: "Egusi Soup", cuisine: "West African", servingLabel: "1 bowl (250g)", calories: 380, protein: 22, carbs: 12, fat: 28, emoji: "🥣" },
-  { id: "f4", name: "Moi Moi", cuisine: "West African", servingLabel: "1 wrap (180g)", calories: 240, protein: 14, carbs: 26, fat: 9, emoji: "🫘" },
-  { id: "f5", name: "Garri (Eba)", cuisine: "West African", servingLabel: "1 cup (150g)", calories: 350, protein: 1.5, carbs: 84, fat: 0.5, emoji: "🌾" },
-  { id: "f6", name: "Suya (Beef)", cuisine: "West African", servingLabel: "150g", calories: 310, protein: 38, carbs: 4, fat: 16, emoji: "🥩" },
-  { id: "f7", name: "Banku & Tilapia", cuisine: "West African", servingLabel: "1 plate", calories: 520, protein: 36, carbs: 62, fat: 14, emoji: "🐟" },
+  { id: "f1", name: "Jollof Rice", aliases: ["party rice", "jellof"], cuisine: "West African", servingLabel: "1 cup (200g)", calories: 320, protein: 7, carbs: 58, fat: 8, emoji: "🍚" },
+  { id: "f2", name: "Fried Plantain (Dodo)", aliases: ["dodo", "plantain", "boli"], cuisine: "West African", servingLabel: "4 slices (100g)", calories: 215, protein: 1.5, carbs: 32, fat: 9, emoji: "🍌" },
+  { id: "f3", name: "Egusi Soup", aliases: ["melon seed soup", "egwusi"], cuisine: "West African", servingLabel: "1 bowl (250g)", calories: 380, protein: 22, carbs: 12, fat: 28, emoji: "🥣" },
+  { id: "f4", name: "Moi Moi", aliases: ["moimoi", "moin moin", "moyin moyin", "bean pudding"], cuisine: "West African", servingLabel: "1 wrap (180g)", calories: 240, protein: 14, carbs: 26, fat: 9, emoji: "🫘" },
+  { id: "f5", name: "Garri (Eba)", aliases: ["eba", "gari", "cassava"], cuisine: "West African", servingLabel: "1 cup (150g)", calories: 350, protein: 1.5, carbs: 84, fat: 0.5, emoji: "🌾" },
+  { id: "f6", name: "Suya (Beef)", aliases: ["tsire", "beef skewer"], cuisine: "West African", servingLabel: "150g", calories: 310, protein: 38, carbs: 4, fat: 16, emoji: "🥩" },
+  { id: "f7", name: "Banku & Tilapia", aliases: ["banku", "tilapia"], cuisine: "West African", servingLabel: "1 plate", calories: 520, protein: 36, carbs: 62, fat: 14, emoji: "🐟" },
 
   // Caribbean
-  { id: "f10", name: "Jerk Chicken", cuisine: "Caribbean", servingLabel: "150g", calories: 290, protein: 36, carbs: 4, fat: 14, emoji: "🍗" },
-  { id: "f11", name: "Rice & Peas", cuisine: "Caribbean", servingLabel: "1 cup (200g)", calories: 340, protein: 9, carbs: 60, fat: 7, emoji: "🍛" },
+  { id: "f10", name: "Jerk Chicken", aliases: ["jerk"], cuisine: "Caribbean", servingLabel: "150g", calories: 290, protein: 36, carbs: 4, fat: 14, emoji: "🍗" },
+  { id: "f11", name: "Rice & Peas", aliases: ["rice and peas"], cuisine: "Caribbean", servingLabel: "1 cup (200g)", calories: 340, protein: 9, carbs: 60, fat: 7, emoji: "🍛" },
   { id: "f12", name: "Ackee & Saltfish", cuisine: "Caribbean", servingLabel: "1 plate (200g)", calories: 380, protein: 24, carbs: 12, fat: 28, emoji: "🐟" },
   { id: "f13", name: "Curry Goat", cuisine: "Caribbean", servingLabel: "200g", calories: 410, protein: 32, carbs: 8, fat: 28, emoji: "🍲" },
   { id: "f14", name: "Festival (Dumpling)", cuisine: "Caribbean", servingLabel: "1 piece", calories: 180, protein: 3, carbs: 28, fat: 6, emoji: "🥖" },
