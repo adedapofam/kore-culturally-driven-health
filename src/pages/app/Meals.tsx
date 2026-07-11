@@ -24,6 +24,11 @@ function servingGramsOf(f: FoodItem): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
+/** Normalise text for search: lowercase, strip accents, drop spaces/punctuation.
+ *  "Moi-Moi", "moimoi" and "MOI MOI" all become "moimoi". */
+const norm = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+
 const r = (x: number) => Math.round(x);
 const r1 = (x: number) => Math.round(x * 10) / 10;
 
@@ -146,22 +151,26 @@ function FoodPicker({ slot, onClose, onAdd }: {
   const userCuisines = k.profile?.cuisines || [];
 
   const results = useMemo(() => {
-    const ql = q.toLowerCase().trim();
+    const nq = norm(q);
     const sorted = [...FOOD_DB].sort((a, b) => {
       const ai = userCuisines.includes(a.cuisine) ? -1 : 0;
       const bi = userCuisines.includes(b.cuisine) ? -1 : 0;
       return ai - bi;
     });
-    if (!ql) return sorted.slice(0, 30);
-    return sorted.filter(f => f.name.toLowerCase().includes(ql) || f.cuisine.toLowerCase().includes(ql));
+    if (!nq) return sorted.slice(0, 30);
+    return sorted.filter(f =>
+      norm(f.name).includes(nq) ||
+      (f.aliases ?? []).some(a => norm(a).includes(nq) || nq.includes(norm(a))) ||
+      norm(f.cuisine).includes(nq)
+    );
   }, [q, userCuisines]);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center">
       <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
         transition={{ type: "spring", damping: 28, stiffness: 280 }}
-        className="w-full max-w-md max-h-[88vh] bg-card border-t border-border rounded-t-3xl flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-border/60">
+        className="w-full max-w-md max-h-[85dvh] overflow-hidden bg-card border-t border-border rounded-t-3xl flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-border/60 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             {selected && (
               <button onClick={() => setSelected(null)} className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0">
@@ -202,7 +211,7 @@ function FoodPicker({ slot, onClose, onAdd }: {
                       className="pl-9 h-12 rounded-xl bg-secondary/60 border-border/60" />
                   </div>
                 </div>
-                <div className="overflow-y-auto px-4 pb-6 flex-1 space-y-1.5">
+                <div className="overflow-y-auto px-4 pb-6 flex-1 min-h-0 space-y-1.5">
                   {results.map(f => (
                     <button key={f.id} onClick={() => setSelected(f)}
                       className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-secondary/60 transition text-left">
@@ -252,8 +261,8 @@ function LogDetails({ food, onAdd }: { food: FoodItem; onAdd: (entry: NewMeal) =
   const step = (d: number) => setCount(prev => Math.min(20, Math.max(0.5, Math.round((prev + d) * 2) / 2)));
 
   return (
-    <div className="flex flex-col overflow-hidden">
-      <div className="overflow-y-auto p-4 space-y-4">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-4">
         {needsGrams ? (
           <div className="rounded-xl bg-secondary/60 border border-border/60 p-3">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Weight of one portion (grams)</div>
@@ -297,7 +306,7 @@ function LogDetails({ food, onAdd }: { food: FoodItem; onAdd: (entry: NewMeal) =
         )}
       </div>
 
-      <div className="p-4 pt-2 border-t border-border/60">
+      <div className="p-4 pt-2 border-t border-border/60 shrink-0 bg-card">
         <Button disabled={!canAdd}
           onClick={() => onAdd({
             name: food.name, emoji: food.emoji,
@@ -338,7 +347,7 @@ function EditMealSheet({ meal, onClose, onSave }: {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center">
       <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
         transition={{ type: "spring", damping: 28, stiffness: 280 }}
-        className="w-full max-w-md max-h-[88vh] bg-card border-t border-border rounded-t-3xl flex flex-col">
+        className="w-full max-w-md max-h-[85dvh] overflow-hidden bg-card border-t border-border rounded-t-3xl flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-border/60 shrink-0">
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Edit meal</div>
@@ -347,7 +356,7 @@ function EditMealSheet({ meal, onClose, onSave }: {
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0"><X size={16} /></button>
         </div>
 
-        <div className="overflow-y-auto p-4 space-y-4">
+        <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-4">
           <div className="rounded-xl bg-secondary/60 border border-border/60 p-3 flex items-center justify-between">
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">How many?</div>
@@ -383,7 +392,7 @@ function EditMealSheet({ meal, onClose, onSave }: {
           </div>
         </div>
 
-        <div className="p-4 pt-2 border-t border-border/60 shrink-0">
+        <div className="p-4 pt-2 border-t border-border/60 shrink-0 bg-card">
           <Button disabled={!valid}
             onClick={() => onSave({
               grams: meal.grams ? g : undefined,
