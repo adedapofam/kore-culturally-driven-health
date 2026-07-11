@@ -22,7 +22,13 @@ export interface Profile {
 
 export interface MealEntry {
   id: string; date: string; slot: MealSlot;
-  name: string; calories: number; protein: number; carbs: number; fat: number; emoji?: string;
+  name: string;
+  /** Macros below are for ONE portion at `grams` (if known). */
+  calories: number; protein: number; carbs: number; fat: number; emoji?: string;
+  /** Weight in grams of one portion, when known (parsed from the food's serving). */
+  grams?: number;
+  /** How many portions were eaten. Totals multiply by this. */
+  portions: number;
 }
 
 export interface SetEntry { reps: number; weightKg: number; }
@@ -58,7 +64,8 @@ interface Ctx extends State {
   cloudSynced: boolean;
   signOut: () => Promise<void>;
   setProfile: (p: Profile) => void;
-  addMeal: (m: Omit<MealEntry, "id" | "date">) => void;
+  addMeal: (m: Omit<MealEntry, "id" | "date" | "portions"> & { portions?: number }) => void;
+  updateMeal: (id: string, patch: Partial<Pick<MealEntry, "name" | "calories" | "protein" | "carbs" | "fat" | "grams" | "portions">>) => void;
   removeMeal: (id: string) => void;
   addWorkout: (w: Omit<Workout, "id" | "date">) => void;
   addSupplement: (s: Omit<Supplement, "id">) => void;
@@ -137,7 +144,7 @@ function reportSyncError(op: string, error: unknown) {
 
 // ---------- Cloud row mappers ----------
 
-type MealsRow = { id: string; log_date: string; slot: string; name: string; calories: number; protein: number; carbs: number; fat: number; emoji: string | null };
+type MealsRow = { id: string; log_date: string; slot: string; name: string; calories: number; protein: number; carbs: number; fat: number; emoji: string | null; grams: number | null; portions: number | null };
 type WorkoutRow = { id: string; log_date: string; exercises: unknown };
 type SupplementRow = { id: string; name: string; timing: string; emoji: string | null; is_food_based: boolean | null };
 type SupplementLogRow = { log_date: string; supplement_id: string; taken: boolean };
@@ -148,6 +155,8 @@ const mapMeal = (r: MealsRow): MealEntry => ({
   id: r.id, date: r.log_date, slot: r.slot as MealSlot, name: r.name,
   calories: Number(r.calories), protein: Number(r.protein), carbs: Number(r.carbs), fat: Number(r.fat),
   emoji: r.emoji ?? undefined,
+  grams: r.grams != null ? Number(r.grams) : undefined,
+  portions: r.portions != null ? Number(r.portions) : 1,
 });
 const mapWorkout = (r: WorkoutRow): Workout => ({
   id: r.id, date: r.log_date,
@@ -193,6 +202,7 @@ async function migrateLocalToCloud(uid: string) {
         local.meals.map(m => ({
           id: m.id, user_id: uid, log_date: m.date, slot: m.slot, name: m.name,
           calories: m.calories, protein: m.protein, carbs: m.carbs, fat: m.fat, emoji: m.emoji ?? null,
+          grams: m.grams ?? null, portions: m.portions ?? 1,
         })),
         { onConflict: "id", ignoreDuplicates: true },
       );
@@ -246,7 +256,7 @@ async function fetchCloudState(uid: string): Promise<Partial<State>> {
 
   const [prof, meals, workouts, supps, suppLogs, hydra, checkins] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
-    supabase.from("meals").select("id,log_date,slot,name,calories,protein,carbs,fat,emoji").eq("user_id", uid).gte("log_date", sinceStr).order("created_at"),
+    supabase.from("meals").select("id,log_date,slot,name,calories,protein,carbs,fat,emoji,grams,portions").eq("user_id", uid).gte("log_date", sinceStr).order("created_at"),
     supabase.from("workouts").select("id,log_date,exercises").eq("user_id", uid).gte("log_date", sinceStr).order("log_date"),
     supabase.from("supplements").select("id,name,timing,emoji,is_food_based").eq("user_id", uid).order("created_at"),
     supabase.from("supplement_logs").select("log_date,supplement_id,taken").eq("user_id", uid).gte("log_date", sinceStr),
@@ -293,7 +303,11 @@ export function KoreProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return initial;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? { ...initial, ...JSON.parse(raw) } : initial;
+      if (!raw) return initial;
+      const parsed = { ...initial, ...JSON.parse(raw) } as State;
+      // Older cached entries predate the portions field
+      parsed.meals = (parsed.meals ?? []).map(m => ({ ...m, portions: m.portions ?? 1 }));
+      return parsed;
     } catch { return initial; }
   });
   const [user, setUser] = useState<User | null>(null);
@@ -348,10 +362,13 @@ export function KoreProvider({ children }: { children: ReactNode }) {
       return ov !== undefined ? ov : isGymScheduled(state.profile);
     };
     const todayMeals = () => state.meals.filter(m => m.date === today);
-    const todayTotals = () => todayMeals().reduce((a, m) => ({
-      calories: a.calories + m.calories, protein: a.protein + m.protein,
-      carbs: a.carbs + m.carbs, fat: a.fat + m.fat,
-    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    const todayTotals = () => todayMeals().reduce((a, m) => {
+      const n = m.portions ?? 1;
+      return {
+        calories: a.calories + m.calories * n, protein: a.protein + m.protein * n,
+        carbs: a.carbs + m.carbs * n, fat: a.fat + m.fat * n,
+      };
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
     const todayWaterMl = () => state.hydration.filter(h => h.date === today).reduce((a, h) => a + h.ml, 0);
     const todaySupplementCompletion = () => {
       const total = state.supplements.length;
@@ -387,12 +404,29 @@ export function KoreProvider({ children }: { children: ReactNode }) {
       },
       addMeal: (m) => {
         const id = crypto.randomUUID();
-        setState(s => ({ ...s, meals: [...s.meals, { ...m, id, date: today }] }));
+        const entry: MealEntry = { ...m, portions: m.portions ?? 1, id, date: today };
+        setState(s => ({ ...s, meals: [...s.meals, entry] }));
         if (uid) {
           supabase.from("meals").insert({
-            id, user_id: uid, log_date: today, slot: m.slot, name: m.name,
-            calories: Math.round(m.calories), protein: m.protein, carbs: m.carbs, fat: m.fat, emoji: m.emoji ?? null,
+            id, user_id: uid, log_date: today, slot: entry.slot, name: entry.name,
+            calories: Math.round(entry.calories), protein: entry.protein, carbs: entry.carbs, fat: entry.fat,
+            emoji: entry.emoji ?? null, grams: entry.grams ?? null, portions: entry.portions,
           }).then(({ error }) => { if (error) reportSyncError("meal", error); });
+        }
+      },
+      updateMeal: (id, patch) => {
+        setState(s => ({ ...s, meals: s.meals.map(m => m.id === id ? { ...m, ...patch } : m) }));
+        if (uid) {
+          const dbPatch: Record<string, unknown> = {};
+          if (patch.name !== undefined) dbPatch.name = patch.name;
+          if (patch.calories !== undefined) dbPatch.calories = Math.round(patch.calories);
+          if (patch.protein !== undefined) dbPatch.protein = patch.protein;
+          if (patch.carbs !== undefined) dbPatch.carbs = patch.carbs;
+          if (patch.fat !== undefined) dbPatch.fat = patch.fat;
+          if (patch.grams !== undefined) dbPatch.grams = patch.grams ?? null;
+          if (patch.portions !== undefined) dbPatch.portions = patch.portions;
+          supabase.from("meals").update(dbPatch).eq("id", id)
+            .then(({ error }) => { if (error) reportSyncError("meal update", error); });
         }
       },
       removeMeal: (id) => {
