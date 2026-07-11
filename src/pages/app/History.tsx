@@ -19,10 +19,10 @@ export default function History() {
       const d = new Date(); d.setDate(d.getDate() - i);
       const ds = d.toISOString().slice(0, 10);
       const meals = k.meals.filter(m => m.date === ds);
-      const calories = meals.reduce((a, m) => a + m.calories, 0);
-      const protein = meals.reduce((a, m) => a + m.protein, 0);
-      const carbs = meals.reduce((a, m) => a + m.carbs, 0);
-      const fat = meals.reduce((a, m) => a + m.fat, 0);
+      const calories = meals.reduce((a, m) => a + m.calories * (m.portions ?? 1), 0);
+      const protein = meals.reduce((a, m) => a + m.protein * (m.portions ?? 1), 0);
+      const carbs = meals.reduce((a, m) => a + m.carbs * (m.portions ?? 1), 0);
+      const fat = meals.reduce((a, m) => a + m.fat * (m.portions ?? 1), 0);
       const w = k.workouts.find(x => x.date === ds);
       const volume = w ? w.exercises.reduce((a, e) => a + e.sets.reduce((b, s) => b + s.reps * s.weightKg, 0), 0) : 0;
       const waterMl = k.hydration.filter(h => h.date === ds).reduce((a, h) => a + h.ml, 0);

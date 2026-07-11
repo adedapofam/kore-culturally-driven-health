@@ -1,6 +1,6 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Flame, Droplets, Dumbbell, Pill, Plus, Sparkles, ChevronRight, type LucideIcon } from "lucide-react";
+import { Flame, Droplets, Dumbbell, Pill, Plus, Sparkles, ChevronRight, LogOut, LogIn, type LucideIcon } from "lucide-react";
 import { MobileShell } from "@/components/kore/MobileShell";
 import { ProgressRing } from "@/components/kore/ProgressRing";
 import { MacroBar } from "@/components/kore/MacroBar";
@@ -9,7 +9,13 @@ import { Button } from "@/components/ui/button";
 
 export default function Dashboard() {
   const k = useKore();
+  const nav = useNavigate();
   if (!k.profile) return null;
+  const handleSignOut = async () => {
+    if (!window.confirm("Sign out of K\u014dre? Your data is safely stored in the cloud.")) return;
+    await k.signOut();
+    nav("/", { replace: true });
+  };
   const t = k.targets();
   const totals = k.todayTotals();
   const water = k.todayWaterMl();
@@ -30,12 +36,25 @@ export default function Dashboard() {
             <div className="text-xs text-muted-foreground">{greet},</div>
             <h1 className="font-display text-3xl font-semibold leading-tight">{k.profile.name}</h1>
           </div>
-          <button onClick={k.toggleGymDay} className="flex flex-col items-end">
-            <span className={`text-[10px] uppercase tracking-widest ${isGym ? "text-accent" : "text-muted-foreground"}`}>
-              {isGym ? "Gym day" : "Rest day"}
-            </span>
-            <span className="text-xs text-muted-foreground mt-0.5">tap to switch</span>
-          </button>
+          <div className="flex items-start gap-3">
+            <button onClick={k.toggleGymDay} className="flex flex-col items-end">
+              <span className={`text-[10px] uppercase tracking-widest ${isGym ? "text-accent" : "text-muted-foreground"}`}>
+                {isGym ? "Gym day" : "Rest day"}
+              </span>
+              <span className="text-xs text-muted-foreground mt-0.5">tap to switch</span>
+            </button>
+            {k.user ? (
+              <button onClick={handleSignOut} title="Sign out"
+                className="w-9 h-9 rounded-full bg-secondary/60 hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition shrink-0">
+                <LogOut size={15} />
+              </button>
+            ) : (
+              <Link to="/auth" title="Sign in to save your data"
+                className="w-9 h-9 rounded-full bg-accent/15 hover:bg-accent/25 flex items-center justify-center text-accent transition shrink-0">
+                <LogIn size={15} />
+              </Link>
+            )}
+          </div>
         </motion.div>
 
         {/* main calorie ring */}

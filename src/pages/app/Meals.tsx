@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Search, Trash2, X } from "lucide-react";
+import { Plus, Search, Trash2, X, Pencil, Minus } from "lucide-react";
 import { MobileShell } from "@/components/kore/MobileShell";
 import { PageHeader } from "@/components/kore/PageHeader";
 import { MacroBar } from "@/components/kore/MacroBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useKore, type MealSlot } from "@/store/koreStore";
+import { useKore, type MealSlot, type MealEntry } from "@/store/koreStore";
 import { FOOD_DB, type FoodItem } from "@/data/foods";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ const SLOTS: { id: MealSlot; label: string; emoji: string }[] = [
 export default function Meals() {
   const k = useKore();
   const [pickerSlot, setPickerSlot] = useState<MealSlot | null>(null);
+  const [editing, setEditing] = useState<MealEntry | null>(null);
   const t = k.targets();
   const totals = k.todayTotals();
   const meals = k.todayMeals();
@@ -41,7 +42,7 @@ export default function Meals() {
       <div className="px-5 space-y-4">
         {SLOTS.map(slot => {
           const slotMeals = meals.filter(m => m.slot === slot.id);
-          const slotCals = slotMeals.reduce((a, m) => a + m.calories, 0);
+          const slotCals = Math.round(slotMeals.reduce((a, m) => a + m.calories * (m.portions ?? 1), 0));
           return (
             <div key={slot.id}>
               <div className="flex items-center justify-between mb-2 px-1">
@@ -60,19 +61,32 @@ export default function Meals() {
                     + Add {slot.label.toLowerCase()}
                   </button>
                 )}
-                {slotMeals.map(m => (
-                  <div key={m.id} className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3 group">
-                    <div className="w-10 h-10 rounded-xl bg-secondary/60 flex items-center justify-center text-xl">{m.emoji || "🍽️"}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{m.name}</div>
-                      <div className="text-[11px] text-muted-foreground">P {m.protein}g · C {m.carbs}g · F {m.fat}g</div>
+                {slotMeals.map(m => {
+                  const n = m.portions ?? 1;
+                  return (
+                    <div key={m.id} className="glass-card rounded-2xl px-4 py-3 flex items-center gap-3 group">
+                      <button onClick={() => setEditing(m)} className="w-10 h-10 rounded-xl bg-secondary/60 flex items-center justify-center text-xl shrink-0">{m.emoji || "🍽️"}</button>
+                      <button onClick={() => setEditing(m)} className="flex-1 min-w-0 text-left">
+                        <div className="text-sm font-medium truncate">
+                          {m.name}
+                          {n !== 1 && <span className="ml-1.5 text-[11px] font-semibold text-accent">×{n}</span>}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {m.grams ? `${Math.round(m.grams * n)}g · ` : ""}P {Math.round(m.protein * n)}g · C {Math.round(m.carbs * n)}g · F {Math.round(m.fat * n)}g
+                        </div>
+                      </button>
+                      <div className="text-sm font-semibold tabular-nums">{Math.round(m.calories * n)}</div>
+                      <div className="flex items-center">
+                        <button onClick={() => setEditing(m)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-accent transition p-1">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => k.removeMeal(m.id)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition p-1">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-sm font-semibold tabular-nums">{m.calories}</div>
-                    <button onClick={() => k.removeMeal(m.id)} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition p-1">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
@@ -80,12 +94,24 @@ export default function Meals() {
       </div>
 
       <AnimatePresence>
+        {editing && (
+          <EditMealSheet
+            meal={editing}
+            onClose={() => setEditing(null)}
+            onSave={(patch) => {
+              k.updateMeal(editing.id, patch);
+              toast.success("Meal updated");
+              setEditing(null);
+            }}
+          />
+        )}
         {pickerSlot && (
           <FoodPicker
             slot={pickerSlot}
             onClose={() => setPickerSlot(null)}
             onPick={(f) => {
-              k.addMeal({ slot: pickerSlot!, name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, emoji: f.emoji });
+              const gramsMatch = f.servingLabel.match(/(\d+(?:\.\d+)?)\s*g/);
+              k.addMeal({ slot: pickerSlot!, name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, emoji: f.emoji, grams: gramsMatch ? Number(gramsMatch[1]) : undefined });
               toast.success(`Added ${f.name}`);
               setPickerSlot(null);
             }}
@@ -215,5 +241,100 @@ function NumField({ label, value, onChange }: { label: string; value: string; on
       <input value={value} onChange={e => onChange(e.target.value.replace(/[^\d.]/g, ""))}
         inputMode="decimal" placeholder="0" className="w-full bg-transparent outline-none font-display text-xl font-semibold tabular-nums mt-0.5" />
     </div>
+  );
+}
+
+
+function EditMealSheet({ meal, onClose, onSave }: {
+  meal: MealEntry;
+  onClose: () => void;
+  onSave: (patch: { grams?: number; portions: number; calories: number; protein: number; carbs: number; fat: number }) => void;
+}) {
+  const [portions, setPortions] = useState(meal.portions ?? 1);
+  const [grams, setGrams] = useState(meal.grams ? String(meal.grams) : "");
+  const [cals, setCals] = useState(String(meal.calories));
+  const [p, setP] = useState(String(meal.protein));
+  const [c, setC] = useState(String(meal.carbs));
+  const [f, setF] = useState(String(meal.fat));
+
+  // Changing grams rescales the macro fields proportionally (per-gram density
+  // derived from the meal's current base values).
+  const onGramsChange = (v: string) => {
+    const clean = v.replace(/[^\d.]/g, "");
+    setGrams(clean);
+    const newG = Number(clean);
+    if (meal.grams && newG > 0) {
+      const ratio = newG / meal.grams;
+      setCals(String(Math.round(meal.calories * ratio)));
+      setP(String(Math.round(meal.protein * ratio * 10) / 10));
+      setC(String(Math.round(meal.carbs * ratio * 10) / 10));
+      setF(String(Math.round(meal.fat * ratio * 10) / 10));
+    }
+  };
+
+  const step = (d: number) => setPortions(prev => Math.min(20, Math.max(0.5, Math.round((prev + d) * 2) / 2)));
+  const totalCals = Math.round((Number(cals) || 0) * portions);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center">
+      <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 28, stiffness: 280 }}
+        className="w-full max-w-md bg-card border-t border-border rounded-t-3xl flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-border/60">
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Edit meal</div>
+            <div className="font-display text-lg font-semibold truncate">{meal.emoji || "🍽️"} {meal.name}</div>
+          </div>
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0"><X size={16} /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Portions */}
+          <div className="rounded-xl bg-secondary/60 border border-border/60 p-3 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">How many?</div>
+              <div className="text-xs text-muted-foreground mt-0.5">e.g. had 2 wraps? Set ×2</div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => step(-0.5)} className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center hover:bg-secondary/80 transition"><Minus size={14} /></button>
+              <div className="font-display text-xl font-semibold tabular-nums w-12 text-center">×{portions}</div>
+              <button onClick={() => step(0.5)} className="w-9 h-9 rounded-full bg-accent/15 text-accent flex items-center justify-center hover:bg-accent/25 transition"><Plus size={14} /></button>
+            </div>
+          </div>
+
+          {/* Grams (only when the portion weight is known) */}
+          {meal.grams != null && (
+            <div className="rounded-xl bg-secondary/60 border border-border/60 p-3">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Portion size (grams)</div>
+              <input value={grams} onChange={e => onGramsChange(e.target.value)} inputMode="decimal"
+                className="w-full bg-transparent outline-none font-display text-xl font-semibold tabular-nums mt-0.5" />
+              <div className="text-[10px] text-muted-foreground mt-1">Macros below rescale automatically</div>
+            </div>
+          )}
+
+          {/* Per-portion macros */}
+          <div className="grid grid-cols-2 gap-2">
+            <NumField label="Calories (per portion)" value={cals} onChange={setCals} />
+            <NumField label="Protein (g)" value={p} onChange={setP} />
+            <NumField label="Carbs (g)" value={c} onChange={setC} />
+            <NumField label="Fat (g)" value={f} onChange={setF} />
+          </div>
+
+          <Button
+            onClick={() => onSave({
+              grams: grams ? Number(grams) : meal.grams,
+              portions,
+              calories: Number(cals) || 0,
+              protein: Number(p) || 0,
+              carbs: Number(c) || 0,
+              fat: Number(f) || 0,
+            })}
+            className="w-full h-12 rounded-xl font-semibold"
+            style={{ background: "var(--gradient-gold)", color: "hsl(var(--primary-foreground))" }}>
+            Save · {totalCals} kcal total
+          </Button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
