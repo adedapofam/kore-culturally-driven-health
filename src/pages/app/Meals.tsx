@@ -11,6 +11,9 @@ import { FOOD_DB, type FoodItem } from "@/data/foods";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+/** Visible build stamp so we always know which version is live. */
+export const KORE_BUILD = "v0.4.0";
+
 const SLOTS: { id: MealSlot; label: string; emoji: string }[] = [
   { id: "breakfast", label: "Breakfast", emoji: "🌅" },
   { id: "lunch", label: "Lunch", emoji: "🌞" },
@@ -178,7 +181,7 @@ function FoodPicker({ slot, onClose, onAdd }: {
               </button>
             )}
             <div className="min-w-0">
-              <div className="text-[11px] uppercase tracking-widest text-muted-foreground">{selected ? "How much?" : "Add to"}</div>
+              <div className="text-[11px] uppercase tracking-widest text-muted-foreground">{selected ? "How much?" : `Add to · ${KORE_BUILD}`}</div>
               <div className="font-display text-lg font-semibold capitalize truncate">
                 {selected ? selected.name : slot}
               </div>
@@ -201,39 +204,44 @@ function FoodPicker({ slot, onClose, onAdd }: {
               ))}
             </div>
 
-            {tab === "search" ? (
-              <>
-                <div className="p-4 pb-2">
+            <div className="overflow-y-auto">
+              {tab === "search" ? (
+                <div className="p-4 pb-6">
                   <div className="relative">
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <Input autoFocus value={q} onChange={e => setQ(e.target.value)}
                       placeholder="Try 'jollof', 'dal', 'biryani'..."
                       className="pl-9 h-12 rounded-xl bg-secondary/60 border-border/60" />
                   </div>
-                </div>
-                <div className="overflow-y-auto px-4 pb-6 flex-1 min-h-0 space-y-1.5">
-                  {results.map(f => (
-                    <button key={f.id} onClick={() => setSelected(f)}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-secondary/60 transition text-left">
-                      <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-xl">{f.emoji}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{f.name}</div>
-                        <div className="text-[11px] text-muted-foreground">{f.cuisine}</div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-[11px] text-muted-foreground">per {f.servingLabel}</div>
-                        <div className="text-sm font-semibold tabular-nums">{f.calories} kcal</div>
-                      </div>
-                    </button>
-                  ))}
-                  {results.length === 0 && (
-                    <div className="text-center text-sm text-muted-foreground py-8">No matches. Try the custom tab.</div>
+                  {q.trim() !== "" && (
+                    <div className="mt-1.5 px-1 text-[10px] text-muted-foreground/70 tabular-nums">
+                      debug: "{q}" → "{norm(q)}" → {results.length} of {FOOD_DB.length} foods
+                    </div>
                   )}
+                  <div className="mt-2 space-y-1.5">
+                    {results.map(f => (
+                      <button key={f.id} onClick={() => setSelected(f)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-secondary/60 transition text-left">
+                        <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-xl">{f.emoji}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{f.name}</div>
+                          <div className="text-[11px] text-muted-foreground">{f.cuisine}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-[11px] text-muted-foreground">per {f.servingLabel}</div>
+                          <div className="text-sm font-semibold tabular-nums">{f.calories} kcal</div>
+                        </div>
+                      </button>
+                    ))}
+                    {results.length === 0 && (
+                      <div className="text-center text-sm text-muted-foreground py-8">No matches. Try the custom tab.</div>
+                    )}
+                  </div>
                 </div>
-              </>
-            ) : (
-              <CustomMealForm onSubmit={(c) => onAdd({ ...c, emoji: "🍽️", portions: 1 })} />
-            )}
+              ) : (
+                <CustomMealForm onSubmit={(c) => onAdd({ ...c, emoji: "🍽️", portions: 1 })} />
+              )}
+            </div>
           </>
         )}
       </motion.div>
@@ -261,8 +269,8 @@ function LogDetails({ food, onAdd }: { food: FoodItem; onAdd: (entry: NewMeal) =
   const step = (d: number) => setCount(prev => Math.min(20, Math.max(0.5, Math.round((prev + d) * 2) / 2)));
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-4">
+    <div className="overflow-y-auto">
+      <div className="p-4 space-y-4">
         {needsGrams ? (
           <div className="rounded-xl bg-secondary/60 border border-border/60 p-3">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Weight of one portion (grams)</div>
@@ -306,7 +314,7 @@ function LogDetails({ food, onAdd }: { food: FoodItem; onAdd: (entry: NewMeal) =
         )}
       </div>
 
-      <div className="p-4 pt-2 border-t border-border/60 shrink-0 bg-card">
+      <div className="px-4 pb-4">
         <Button disabled={!canAdd}
           onClick={() => onAdd({
             name: food.name, emoji: food.emoji,
@@ -356,7 +364,7 @@ function EditMealSheet({ meal, onClose, onSave }: {
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0"><X size={16} /></button>
         </div>
 
-        <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-4">
+        <div className="overflow-y-auto"><div className="p-4 space-y-4">
           <div className="rounded-xl bg-secondary/60 border border-border/60 p-3 flex items-center justify-between">
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">How many?</div>
@@ -390,9 +398,9 @@ function EditMealSheet({ meal, onClose, onSave }: {
               Nutrition is estimated by Kōre and rescales with weight — it can't be edited directly.
             </div>
           </div>
-        </div>
+        </div></div>
 
-        <div className="p-4 pt-2 border-t border-border/60 shrink-0 bg-card">
+        <div className="px-4 pb-4">
           <Button disabled={!valid}
             onClick={() => onSave({
               grams: meal.grams ? g : undefined,
