@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Search, Trash2, X, Pencil, Minus, ArrowLeft } from "lucide-react";
 import { MobileShell } from "@/components/kore/MobileShell";
@@ -168,8 +169,8 @@ function FoodPicker({ slot, onClose, onAdd }: {
     );
   }, [q, userCuisines]);
 
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center">
+  return createPortal(
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[70] bg-background/80 backdrop-blur-sm flex items-end justify-center">
       <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
         transition={{ type: "spring", damping: 28, stiffness: 280 }}
         className="w-full max-w-md max-h-[85dvh] overflow-hidden bg-card border-t border-border rounded-t-3xl flex flex-col">
@@ -245,7 +246,8 @@ function FoodPicker({ slot, onClose, onAdd }: {
           </>
         )}
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body
   );
 }
 
@@ -351,8 +353,8 @@ function EditMealSheet({ meal, onClose, onSave }: {
 
   const step = (d: number) => setPortions(prev => Math.min(20, Math.max(0.5, Math.round((prev + d) * 2) / 2)));
 
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center">
+  return createPortal(
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[70] bg-background/80 backdrop-blur-sm flex items-end justify-center">
       <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
         transition={{ type: "spring", damping: 28, stiffness: 280 }}
         className="w-full max-w-md max-h-[85dvh] overflow-hidden bg-card border-t border-border rounded-t-3xl flex flex-col">
@@ -413,7 +415,8 @@ function EditMealSheet({ meal, onClose, onSave }: {
           </Button>
         </div>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body
   );
 }
 
