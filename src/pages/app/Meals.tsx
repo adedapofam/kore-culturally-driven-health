@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 /** Visible build stamp so we always know which version is live. */
-export const KORE_BUILD = "v0.4.0";
+export const KORE_BUILD = "v0.4.1";
 
 const SLOTS: { id: MealSlot; label: string; emoji: string }[] = [
   { id: "breakfast", label: "Breakfast", emoji: "🌅" },
@@ -214,11 +214,6 @@ function FoodPicker({ slot, onClose, onAdd }: {
                       placeholder="Try 'jollof', 'dal', 'biryani'..."
                       className="pl-9 h-12 rounded-xl bg-secondary/60 border-border/60" />
                   </div>
-                  {q.trim() !== "" && (
-                    <div className="mt-1.5 px-1 text-[10px] text-muted-foreground/70 tabular-nums">
-                      debug: "{q}" → "{norm(q)}" → {results.length} of {FOOD_DB.length} foods
-                    </div>
-                  )}
                   <div className="mt-2 space-y-1.5">
                     {results.map(f => (
                       <button key={f.id} onClick={() => setSelected(f)}
