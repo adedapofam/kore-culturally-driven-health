@@ -20,6 +20,28 @@ import CheckIn from "./pages/app/CheckIn";
 import Coach from "./pages/app/Coach";
 import History from "./pages/app/History";
 import { KoreProvider, useKore } from "@/store/koreStore";
+import { Component, type ErrorInfo, type ReactNode } from "react";
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error("Kōre render error:", error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-6">
+          <div className="max-w-sm text-center">
+            <div className="text-2xl mb-2">😵</div>
+            <div className="font-display text-lg font-semibold mb-1">Something broke on this screen</div>
+            <div className="text-xs text-muted-foreground break-words">{String(this.state.error)}</div>
+            <button onClick={() => location.reload()} className="mt-4 px-4 py-2 rounded-xl bg-accent text-accent-foreground text-sm font-medium">Reload</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const queryClient = new QueryClient();
 
@@ -52,7 +74,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <KoreProvider>
+      <KoreProvider><ErrorBoundary>
         <BrowserRouter>
           <ThemeBoot />
           <Routes>
@@ -73,7 +95,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
-      </KoreProvider>
+      </ErrorBoundary></KoreProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
